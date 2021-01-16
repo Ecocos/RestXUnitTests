@@ -1,7 +1,9 @@
-﻿[assembly: log4net.Config.XmlConfigurator(Watch = true)]
+﻿
+[assembly: log4net.Config.XmlConfigurator(Watch = true)]
 
 namespace RestXUnitTests.Lib
 {
+
     /// <summary>
     /// (c) 2021 Erich Tinguely
     /// GNU General Public License v3

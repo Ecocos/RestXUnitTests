@@ -1,8 +1,9 @@
+using log4net;
 using Newtonsoft.Json.Linq;
 using RestXUnitTests.ExcelHelper;
 using RestXUnitTests.Helpers;
-using RestXUnitTests.Lib;
 using System;
+using System.Reflection;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -14,8 +15,9 @@ namespace RestXUnitTests
     /// 
     /// xUnit tests for REST api
     /// </summary>
-    public class RestXUnitTests : RestTestBase
+    public class RestXUnitTests
     {
+        private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         private readonly ITestOutputHelper output;
 
         public RestXUnitTests(ITestOutputHelper output) : base()
@@ -43,15 +45,19 @@ namespace RestXUnitTests
             //1. [optional] make a call to set up test, check status (200)
             //2. make api call, check status 
             //3. [optional] make a call to verify test data (200 status expected)
+            var hdrMsg = $"\r\n\r\nTest: {cRow.CellValues["testCase"]}, Row: {cRow.RowNum}";
+            output.WriteLine(hdrMsg);
+            log.Debug(hdrMsg);
 
-            output.WriteLine($"Test: {cRow.CellValues["testCase"]}, Row: {cRow.RowNum}");
-            log.Debug($"starting line {cRow.RowNum}");
-
+            //=============================================================
+            //debugging:
+            //File.AppendAllText("testoutput.txt", $"\r\nTest: {cRow.CellValues["testCase"]}\r\n");
+            //=============================================================
             var rndSku = await GrabNewRandomSku(cRow);
 
             Tuple<bool, JToken, string> phaseI = new Tuple<bool, JToken, string>(true, null, null);
             Tuple<bool, JToken, string> phaseIII = new Tuple<bool, JToken, string>(true, null, null);
-
+            //execute first phase if there is a call type filled in
             if (!String.IsNullOrEmpty(cRow.CellValues["testSetupApiCall"]))
             {
                 phaseI = await new RestApiHelper().RunPhase(
@@ -61,13 +67,13 @@ namespace RestXUnitTests
                     json: cRow.CellValues["setupJson"].Replace("<RND>", rndSku)
                 );
             }
-            if (!phaseI.Item1)
+            if (!phaseI.Item1) //if test setup failed
             {
                 var msg = $"Pre-test setup failed. {phaseI.Item3}";
                 output.WriteLine(msg);
                 Assert.True(false);
             }
-            //check return
+            //always execute main phase
             var phaseII = await new RestApiHelper().RunPhase(
                 testCase: cRow.CellValues["testCase"],
                 apiCall: cRow.CellValues["testApiCallType"],
@@ -77,13 +83,13 @@ namespace RestXUnitTests
                 jsonShouldContain: String.IsNullOrEmpty(cRow.CellValues["responseJsonContains"]) ? null : cRow.CellValues["responseJsonContains"].Replace("<RND>", rndSku),
                 jsonShouldNotContain: cRow.CellValues["responseJsonBodyDoesNotContain"]
             );
-            if (!phaseII.Item1)
+            if (!phaseII.Item1) //if test failed
             {
                 var msg = $"Test failed. {phaseII.Item3}";
                 output.WriteLine(msg);
                 Assert.True(false);
             }
-            //need to check return
+            //execute third phase if there is a call type filled in
             if (!String.IsNullOrEmpty(cRow.CellValues["verfiyApiCallType"]))
             {
                 phaseIII = await new RestApiHelper().RunPhase(
@@ -95,16 +101,16 @@ namespace RestXUnitTests
                     jsonShouldContain: cRow.CellValues["verifyJsonBodyContains"].Replace("<RND>", rndSku),
                     jsonShouldNotContain: cRow.CellValues["verifyJsonBodyDoesNotContain"]
                );
-                if (!phaseIII.Item1)
+                if (!phaseIII.Item1) //if verification failed
                 {
                     var msg = $"Verification step failed. {phaseIII.Item3}";
                     output.WriteLine(msg);
                     Assert.True(false);
                 }
             }
-            //
-            var success = phaseI.Item1 && phaseII.Item1 && phaseIII.Item1; //
-            if (!String.IsNullOrEmpty(cRow.CellValues["deleteMe"]))
+            //if all stages were successful
+            var success = phaseI.Item1 && phaseII.Item1 && phaseIII.Item1;
+            if (!String.IsNullOrEmpty(cRow.CellValues["deleteMe"])) //clean up if set in spreadsheet
             {
                 var yesDelete = bool.Parse(cRow.CellValues["deleteMe"]);
                 if(yesDelete)
@@ -123,6 +129,11 @@ namespace RestXUnitTests
             Assert.True(success);
         }
 
+        /// <summary>
+        /// Creates a random string to use as a SKU if the "&lt;RND&gt;" is embedded in specified strings
+        /// </summary>
+        /// <param name="cRow"></param>
+        /// <returns></returns>
         private static async System.Threading.Tasks.Task<string> GrabNewRandomSku(GenericSpreadsheetRow cRow)
         {
             string rnd = null;
